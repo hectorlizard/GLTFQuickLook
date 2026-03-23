@@ -1,6 +1,6 @@
 # GLTFQuickLook Modern App Extension
 
-This folder contains the modern macOS App Extension implementation of GLTFQuickLook for macOS 10.15 (Catalina) and newer, including full support for Apple Silicon (M1/M2/M3) and upcoming macOS versions like Sequoia.
+This folder contains the modern macOS App Extension implementation of GLTFQuickLook for macOS 10.15 (Catalina) and newer, including full support for Apple Silicon (M1/M2/M3) and upcoming macOS versions like Sequoia and Tahoe.
 
 Apple deprecated `.qlgenerator` plugins and requires QuickLook extensions to be embedded inside a macOS application bag (`.app`).
 
