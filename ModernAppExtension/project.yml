@@ -1,0 +1,83 @@
+name: GLTFQuickLook
+options:
+  bundleIdPrefix: com.hectorlizard
+settings:
+  CODE_SIGN_IDENTITY: "-"
+  MARKETING_VERSION: "1.0"
+  CURRENT_PROJECT_VERSION: "1"
+packages:
+  GLTFSceneKit:
+    url: https://github.com/magicien/GLTFSceneKit.git
+    branch: master
+targets:
+  GLTFQuickLook:
+    type: application
+    platform: macOS
+    deploymentTarget: "12.0"
+    sources: App
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.hectorlizard.GLTFQuickLook
+    info:
+      path: App/Info.plist
+      properties:
+        LSUIElement: true
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: org.khronos.gltf
+            UTTypeConformsTo: [public.data]
+            UTTypeDescription: glTF Document
+            UTTypeTagSpecification:
+              public.filename-extension: [gltf]
+              public.mime-type: [model/gltf+json]
+          - UTTypeIdentifier: org.khronos.glb
+            UTTypeConformsTo: [public.data]
+            UTTypeDescription: glTF Binary Document
+            UTTypeTagSpecification:
+              public.filename-extension: [glb]
+              public.mime-type: [model/gltf-binary]
+    dependencies:
+      - target: GLTFPreview
+      - target: GLTFThumbnail
+
+  GLTFPreview:
+    type: app-extension
+    platform: macOS
+    deploymentTarget: "12.0"
+    sources: PreviewExtension
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.hectorlizard.GLTFQuickLook.GLTFPreview
+      ENABLE_HARDENED_RUNTIME: YES
+      ENABLE_APP_SANDBOX: YES
+    info:
+      path: PreviewExtension/Info.plist
+      properties:
+        CFBundleDisplayName: GLTF Preview
+        NSExtension:
+          NSExtensionAttributes:
+            QLSupportedContentTypes: [org.khronos.gltf, org.khronos.glb]
+            QLSupportsSearchableItems: true
+          NSExtensionPointIdentifier: com.apple.quicklook.preview
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PreviewViewController
+    dependencies:
+      - package: GLTFSceneKit
+
+  GLTFThumbnail:
+    type: app-extension
+    platform: macOS
+    deploymentTarget: "12.0"
+    sources: ThumbnailExtension
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.hectorlizard.GLTFQuickLook.GLTFThumbnail
+      ENABLE_HARDENED_RUNTIME: YES
+      ENABLE_APP_SANDBOX: YES
+    info:
+      path: ThumbnailExtension/Info.plist
+      properties:
+        CFBundleDisplayName: GLTF Thumbnail
+        NSExtension:
+          NSExtensionAttributes:
+            QLSupportedContentTypes: [org.khronos.gltf, org.khronos.glb]
+            QLThumbnailMinimumDimension: 0
+          NSExtensionPointIdentifier: com.apple.quicklook.thumbnail
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ThumbnailProvider
+    dependencies:
+      - package: GLTFSceneKit
