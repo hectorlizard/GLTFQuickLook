@@ -1,9 +1,10 @@
 import Cocoa
+import OSLog
 import Quartz
 import SceneKit
-import GLTFSceneKit
 
 class PreviewViewController: NSViewController, QLPreviewingController {
+    private let logger = Logger(subsystem: "com.hectorlizard.GLTFQuickLook", category: "Preview")
     
     var sceneView: SCNView!
     
@@ -19,14 +20,15 @@ class PreviewViewController: NSViewController, QLPreviewingController {
     func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                let source = try GLTFSceneSource(url: url)
-                let scene = try source.scene()
+                let loadResult = try SceneLoadCoordinator.loadScene(at: url)
                 
                 DispatchQueue.main.async {
-                    self.sceneView.scene = scene
+                    self.sceneView.scene = loadResult.scene
+                    self.sceneView.pointOfView = loadResult.pointOfView
                     handler(nil)
                 }
             } catch {
+                self.logger.error("Preview failed for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 DispatchQueue.main.async {
                     handler(error)
                 }

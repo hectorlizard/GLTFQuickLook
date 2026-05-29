@@ -1,9 +1,10 @@
 import Cocoa
 import QuickLookThumbnailing
+import OSLog
 import SceneKit
-import GLTFSceneKit
 
 class ThumbnailProvider: QLThumbnailProvider {
+    private let logger = Logger(subsystem: "com.hectorlizard.GLTFQuickLook", category: "Thumbnail")
     
     override func provideThumbnail(for request: QLFileThumbnailRequest, _ handler: @escaping (QLThumbnailReply?, Error?) -> Void) {
         let size = request.maximumSize
@@ -13,12 +14,12 @@ class ThumbnailProvider: QLThumbnailProvider {
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
             
             do {
-                let source = try GLTFSceneSource(url: request.fileURL)
-                let scene = try source.scene()
+                let loadResult = try SceneLoadCoordinator.loadScene(at: request.fileURL)
                 
                 let renderer = SCNRenderer(device: nil, options: nil)
-                renderer.scene = scene
+                renderer.scene = loadResult.scene
                 renderer.autoenablesDefaultLighting = true
+                renderer.pointOfView = loadResult.pointOfView
                 
                 let image = renderer.snapshot(atTime: 0.0, with: size, antialiasingMode: .multisampling4X)
                 
@@ -27,7 +28,7 @@ class ThumbnailProvider: QLThumbnailProvider {
                     return true
                 }
             } catch {
-                print("Error generating thumbnail: \(error)")
+                self.logger.error("Thumbnail failed for \(request.fileURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
             return false
         }
