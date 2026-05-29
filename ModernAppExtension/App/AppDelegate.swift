@@ -1,12 +1,15 @@
 import Cocoa
 import OSLog
 
-@main
 class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.hectorlizard.GLTFQuickLook", category: "HostApp")
     private let watchedFoldersKey = "WatchedFolderPaths"
+    private let automaticPreparationDelay: TimeInterval = 1.5
     private var statusItem: NSStatusItem?
     private var statusLabelItem = NSMenuItem(title: "Prêt", action: nil, keyEquivalent: "")
+    private var folderMonitor: FolderEventMonitor?
+    private var automaticPreparationWorkItem: DispatchWorkItem?
+    private var pendingAutomaticFolderPaths: Set<String> = []
     private var isPreparing = false
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
@@ -21,12 +24,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        refreshFolderMonitoring()
         prepare(folderURLs: savedFolderURLs, notifyUser: false)
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
         let folderURLs = urls.map { $0.hasDirectoryPath ? $0 : $0.deletingLastPathComponent() }
         addWatchedFolders(folderURLs)
+        refreshFolderMonitoring()
         prepare(folderURLs: watchedFolderURLs(), notifyUser: true)
     }
 
@@ -71,6 +76,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if panel.runModal() == .OK {
             addWatchedFolders(panel.urls)
+            refreshFolderMonitoring()
             prepare(folderURLs: watchedFolderURLs(), notifyUser: true)
         }
     }
@@ -88,6 +94,72 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let mergedPaths = Array(existingPaths.union(newPaths)).sorted()
         UserDefaults.standard.set(mergedPaths, forKey: watchedFoldersKey)
+    }
+
+    private func refreshFolderMonitoring() {
+        automaticPreparationWorkItem?.cancel()
+        automaticPreparationWorkItem = nil
+        pendingAutomaticFolderPaths.removeAll()
+
+        folderMonitor?.stop()
+        folderMonitor = nil
+
+        let folderURLs = watchedFolderURLs()
+        guard !folderURLs.isEmpty else {
+            statusLabelItem.title = "Aucun dossier configuré"
+            return
+        }
+
+        let monitor = FolderEventMonitor(rootURLs: folderURLs) { [weak self] changedRoots in
+            DispatchQueue.main.async {
+                self?.scheduleAutomaticPreparation(for: changedRoots)
+            }
+        }
+        monitor.start()
+        folderMonitor = monitor
+        statusLabelItem.title = "Surveillance active"
+        logger.notice("Watching \(folderURLs.count, privacy: .public) folders for automatic preparation")
+    }
+
+    private func scheduleAutomaticPreparation(for folderURLs: [URL]) {
+        let folderPaths = folderURLs.map { $0.standardizedFileURL.path }
+        guard !folderPaths.isEmpty else {
+            return
+        }
+
+        pendingAutomaticFolderPaths.formUnion(folderPaths)
+        automaticPreparationWorkItem?.cancel()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.runScheduledAutomaticPreparationIfPossible()
+        }
+        automaticPreparationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + automaticPreparationDelay, execute: workItem)
+
+        if !isPreparing {
+            statusLabelItem.title = "Changements détectés…"
+        }
+    }
+
+    private func runScheduledAutomaticPreparationIfPossible() {
+        guard !pendingAutomaticFolderPaths.isEmpty else {
+            return
+        }
+
+        guard !isPreparing else {
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.runScheduledAutomaticPreparationIfPossible()
+            }
+            automaticPreparationWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + automaticPreparationDelay, execute: workItem)
+            return
+        }
+
+        let folderURLs = pendingAutomaticFolderPaths
+            .sorted()
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+        pendingAutomaticFolderPaths.removeAll()
+        prepare(folderURLs: folderURLs, notifyUser: false)
     }
 
     private func prepare(folderURLs: [URL], notifyUser: Bool) {
@@ -113,7 +185,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let summary = PreparedDocumentPreparer.prepare(urls: folderURLs, logger: logger)
             await MainActor.run {
                 self.isPreparing = false
-                self.statusLabelItem.title = "Préparés: \(summary.documentsPrepared) | Inchangés: \(summary.documentsSkipped) | Échecs: \(summary.failures.count)"
+                self.statusLabelItem.title = summary.failures.isEmpty
+                    ? "Surveillance active"
+                    : "Échecs: \(summary.failures.count)"
                 self.logger.notice(
                     """
                     Preparation finished folders=\(summary.foldersScanned, privacy: .public) seen=\(summary.documentsSeen, privacy: .public) prepared=\(summary.documentsPrepared, privacy: .public) skipped=\(summary.documentsSkipped, privacy: .public) failures=\(summary.failures.count, privacy: .public)
@@ -122,6 +196,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if notifyUser {
                     self.presentSummary(summary)
                 }
+                self.runScheduledAutomaticPreparationIfPossible()
             }
         }
     }
