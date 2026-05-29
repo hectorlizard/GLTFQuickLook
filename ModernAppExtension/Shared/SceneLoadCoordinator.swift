@@ -29,7 +29,7 @@ enum SceneLoadCoordinator {
             }
         }
 
-        let source = GLTFSceneSource(url: url)
+        let source = makeSceneSource(for: url)
         let scene = try source.scene()
 
         let geometryNodeCount = countNodes(in: scene.rootNode) { $0.geometry != nil }
@@ -49,6 +49,13 @@ enum SceneLoadCoordinator {
             geometryNodeCount: geometryNodeCount,
             cameraNodeCount: cameraNodes.count
         )
+    }
+
+    private static func makeSceneSource(for url: URL) -> GLTFSceneSource {
+        if let preparedDocumentData = PreparedDocumentFileCache.preparedDocumentData(for: url, logger: logger) {
+            return GLTFSceneSource(data: preparedDocumentData)
+        }
+        return GLTFSceneSource(url: url)
     }
 
     private static func countNodes(in rootNode: SCNNode, where predicate: (SCNNode) -> Bool) -> Int {

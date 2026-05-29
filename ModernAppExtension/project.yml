@@ -14,7 +14,14 @@ targets:
     type: application
     platform: macOS
     deploymentTarget: "12.0"
-    sources: App
+    sources:
+      - path: App
+      - path: Shared
+        includes:
+          - GLTFDocumentInliner.swift
+          - PreparedDocumentAttributeStore.swift
+          - PreparedDocumentFileCache.swift
+          - PreparedDocumentPreparer.swift
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.hectorlizard.GLTFQuickLook
     info:
@@ -37,6 +44,19 @@ targets:
     dependencies:
       - target: GLTFPreview
       - target: GLTFThumbnail
+
+  GLTFCachePrep:
+    type: tool
+    platform: macOS
+    deploymentTarget: "12.0"
+    sources:
+      - path: Tools/CachePrep
+      - path: Shared
+        includes:
+          - GLTFDocumentInliner.swift
+          - PreparedDocumentAttributeStore.swift
+          - PreparedDocumentFileCache.swift
+          - PreparedDocumentPreparer.swift
 
   GLTFPreview:
     type: app-extension
