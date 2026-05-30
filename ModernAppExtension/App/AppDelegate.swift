@@ -12,6 +12,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         action: #selector(toggleUnrealMaterialEnrichment(_:)),
         keyEquivalent: ""
     )
+    private lazy var redVertexColorToggleItem = NSMenuItem(
+        title: "Ignorer les vertex colors rouge pur",
+        action: #selector(toggleUniformRedVertexColorIgnoring(_:)),
+        keyEquivalent: ""
+    )
     private var folderMonitor: FolderEventMonitor?
     private var automaticPreparationWorkItem: DispatchWorkItem?
     private var pendingAutomaticFolderPaths: Set<String> = []
@@ -55,6 +60,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         prepare(folderURLs: watchedFolderURLs(), notifyUser: true)
     }
 
+    @objc private func toggleUniformRedVertexColorIgnoring(_ sender: Any?) {
+        let newValue = !PreparedDocumentSettings.isUniformRedVertexColorIgnoringEnabled()
+        PreparedDocumentSettings.setUniformRedVertexColorIgnoringEnabled(newValue)
+        updateToggleStates()
+        prepare(folderURLs: watchedFolderURLs(), notifyUser: true)
+    }
+
     @objc private func quitApp(_ sender: Any?) {
         NSApplication.shared.terminate(nil)
     }
@@ -67,6 +79,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Ajouter des dossiers…", action: #selector(chooseFolders(_:)), keyEquivalent: "")
         menu.addItem(withTitle: "Réanalyser les dossiers", action: #selector(rescanFolders(_:)), keyEquivalent: "")
         menu.addItem(unrealMaterialToggleItem)
+        menu.addItem(redVertexColorToggleItem)
         menu.addItem(.separator())
         statusLabelItem.isEnabled = false
         menu.addItem(statusLabelItem)
@@ -81,6 +94,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateToggleStates() {
         unrealMaterialToggleItem.state = PreparedDocumentSettings.isUnrealMaterialEnrichmentEnabled() ? .on : .off
+        redVertexColorToggleItem.state = PreparedDocumentSettings.isUniformRedVertexColorIgnoringEnabled() ? .on : .off
     }
 
     private func presentFolderPicker() {
@@ -229,6 +243,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Déjà à jour : \(summary.documentsSkipped)
         Échecs : \(summary.failures.count)
         Matériaux Unreal : \(PreparedDocumentSettings.isUnrealMaterialEnrichmentEnabled() ? "activés" : "désactivés")
+        Vertex colors rouge pur : \(PreparedDocumentSettings.isUniformRedVertexColorIgnoringEnabled() ? "ignorés" : "conservés")
         """
         alert.alertStyle = summary.failures.isEmpty ? .informational : .warning
         if let firstFailure = summary.failures.first {

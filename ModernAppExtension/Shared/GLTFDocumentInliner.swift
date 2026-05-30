@@ -22,6 +22,13 @@ enum GLTFDocumentInliner {
             additionalResourceURLs = enrichmentResult.additionalResourceURLs
         }
 
+        if options.ignoreUniformRedVertexColors {
+            VertexColorSanitizer.removeUniformRedVertexColors(
+                from: &rootObject,
+                relativeTo: baseDirectoryURL
+            )
+        }
+
         let resourceURLs = localResourceURLs(in: rootObject, relativeTo: baseDirectoryURL) + additionalResourceURLs
 
         if var buffers = rootObject["buffers"] as? [[String: Any]] {
@@ -98,7 +105,7 @@ enum GLTFDocumentInliner {
         return urls
     }
 
-    private static func localResourceURL(for uri: String, relativeTo baseDirectoryURL: URL) -> URL? {
+    static func localResourceURL(for uri: String, relativeTo baseDirectoryURL: URL) -> URL? {
         guard !uri.isEmpty, !uri.hasPrefix("data:") else {
             return nil
         }
