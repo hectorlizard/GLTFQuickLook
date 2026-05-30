@@ -25,6 +25,9 @@ class PreviewViewController: NSViewController, QLPreviewingController {
                 DispatchQueue.main.async {
                     self.sceneView.scene = loadResult.scene
                     self.sceneView.pointOfView = loadResult.pointOfView
+                    self.logger.notice(
+                        "Preview loaded for \(url.lastPathComponent, privacy: .public) geometry=\(loadResult.geometryNodeCount, privacy: .public) cameras=\(loadResult.cameraNodeCount, privacy: .public)"
+                    )
                     handler(nil)
                 }
             } catch {

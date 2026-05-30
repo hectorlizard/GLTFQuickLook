@@ -15,6 +15,9 @@ class ThumbnailProvider: QLThumbnailProvider {
             
             do {
                 let loadResult = try SceneLoadCoordinator.loadScene(at: request.fileURL)
+                self.logger.notice(
+                    "Loaded thumbnail scene for \(request.fileURL.lastPathComponent, privacy: .public) geometry=\(loadResult.geometryNodeCount, privacy: .public) cameras=\(loadResult.cameraNodeCount, privacy: .public)"
+                )
                 
                 let renderer = SCNRenderer(device: nil, options: nil)
                 renderer.scene = loadResult.scene
@@ -25,8 +28,19 @@ class ThumbnailProvider: QLThumbnailProvider {
                 
                 if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                     context.draw(cgImage, in: CGRect(origin: .zero, size: size))
+                    self.logger.notice("Thumbnail rendered via direct cgImage for \(request.fileURL.lastPathComponent, privacy: .public)")
                     return true
                 }
+
+                if let tiffRepresentation = image.tiffRepresentation,
+                   let bitmap = NSBitmapImageRep(data: tiffRepresentation),
+                   let cgImage = bitmap.cgImage {
+                    context.draw(cgImage, in: CGRect(origin: .zero, size: size))
+                    self.logger.notice("Thumbnail rendered via TIFF fallback for \(request.fileURL.lastPathComponent, privacy: .public)")
+                    return true
+                }
+
+                self.logger.error("Thumbnail snapshot did not yield drawable image data for \(request.fileURL.path, privacy: .public)")
             } catch {
                 self.logger.error("Thumbnail failed for \(request.fileURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }

@@ -53,8 +53,10 @@ enum SceneLoadCoordinator {
 
     private static func makeSceneSource(for url: URL) -> GLTFSceneSource {
         if let preparedDocumentData = PreparedDocumentFileCache.preparedDocumentData(for: url, logger: logger) {
+            logger.notice("Using prepared document cache for \(url.path, privacy: .public)")
             return GLTFSceneSource(data: preparedDocumentData)
         }
+        logger.notice("Using source glTF directly for \(url.path, privacy: .public)")
         return GLTFSceneSource(url: url)
     }
 

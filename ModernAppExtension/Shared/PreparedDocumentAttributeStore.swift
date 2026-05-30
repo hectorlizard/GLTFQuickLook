@@ -2,6 +2,7 @@ import Foundation
 
 struct PreparedDocumentCacheMetadata: Codable, Equatable {
     let version: Int
+    let preparationFlavor: String
     let sourceSHA256: String
     let resources: [PreparedDocumentResourceFingerprint]
 }

@@ -20,8 +20,11 @@ targets:
         includes:
           - GLTFDocumentInliner.swift
           - PreparedDocumentAttributeStore.swift
+          - PreparedDocumentPreparationOptions.swift
           - PreparedDocumentFileCache.swift
           - PreparedDocumentPreparer.swift
+          - UnrealMaterialEnricher.swift
+          - UnrealMaterialProps.swift
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.hectorlizard.GLTFQuickLook
     info:
@@ -55,8 +58,11 @@ targets:
         includes:
           - GLTFDocumentInliner.swift
           - PreparedDocumentAttributeStore.swift
+          - PreparedDocumentPreparationOptions.swift
           - PreparedDocumentFileCache.swift
           - PreparedDocumentPreparer.swift
+          - UnrealMaterialEnricher.swift
+          - UnrealMaterialProps.swift
 
   GLTFPreview:
     type: app-extension

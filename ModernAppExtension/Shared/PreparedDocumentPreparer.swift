@@ -10,15 +10,25 @@ struct PreparationRunSummary {
 }
 
 enum PreparedDocumentPreparer {
-    static func prepare(urls: [URL], logger: Logger? = nil) -> PreparationRunSummary {
+    static func prepare(
+        urls: [URL],
+        logger: Logger? = nil,
+        options: PreparedDocumentPreparationOptions = .current()
+    ) -> PreparationRunSummary {
         var summary = PreparationRunSummary()
         let fileManager = FileManager.default
 
         for url in urls {
             if url.hasDirectoryPath {
-                prepareDirectory(url, fileManager: fileManager, logger: logger, summary: &summary)
+                prepareDirectory(
+                    url,
+                    fileManager: fileManager,
+                    logger: logger,
+                    options: options,
+                    summary: &summary
+                )
             } else if url.pathExtension.lowercased() == "gltf" {
-                prepareDocument(url, logger: logger, summary: &summary)
+                prepareDocument(url, logger: logger, options: options, summary: &summary)
             }
         }
 
@@ -29,6 +39,7 @@ enum PreparedDocumentPreparer {
         _ directoryURL: URL,
         fileManager: FileManager,
         logger: Logger?,
+        options: PreparedDocumentPreparationOptions,
         summary: inout PreparationRunSummary
     ) {
         guard fileManager.fileExists(atPath: directoryURL.path) else {
@@ -48,21 +59,26 @@ enum PreparedDocumentPreparer {
         }
 
         for case let fileURL as URL in enumerator where fileURL.pathExtension.lowercased() == "gltf" {
-            prepareDocument(fileURL, logger: logger, summary: &summary)
+            prepareDocument(fileURL, logger: logger, options: options, summary: &summary)
         }
     }
 
-    private static func prepareDocument(_ fileURL: URL, logger: Logger?, summary: inout PreparationRunSummary) {
+    private static func prepareDocument(
+        _ fileURL: URL,
+        logger: Logger?,
+        options: PreparedDocumentPreparationOptions,
+        summary: inout PreparationRunSummary
+    ) {
         summary.documentsSeen += 1
 
         do {
-            let currentMetadata = try GLTFDocumentInliner.metadata(for: fileURL)
+            let currentMetadata = try GLTFDocumentInliner.metadata(for: fileURL, options: options)
             if PreparedDocumentAttributeStore.metadata(for: fileURL) == currentMetadata {
                 summary.documentsSkipped += 1
                 return
             }
 
-            let preparedDocument = try GLTFDocumentInliner.prepareDocument(at: fileURL)
+            let preparedDocument = try GLTFDocumentInliner.prepareDocument(at: fileURL, options: options)
             try PreparedDocumentAttributeStore.write(
                 preparedData: preparedDocument.data,
                 metadata: preparedDocument.metadata,

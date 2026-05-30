@@ -7,6 +7,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let automaticPreparationDelay: TimeInterval = 1.5
     private var statusItem: NSStatusItem?
     private var statusLabelItem = NSMenuItem(title: "Prêt", action: nil, keyEquivalent: "")
+    private lazy var unrealMaterialToggleItem = NSMenuItem(
+        title: "Enrichir avec matériaux Unreal",
+        action: #selector(toggleUnrealMaterialEnrichment(_:)),
+        keyEquivalent: ""
+    )
     private var folderMonitor: FolderEventMonitor?
     private var automaticPreparationWorkItem: DispatchWorkItem?
     private var pendingAutomaticFolderPaths: Set<String> = []
@@ -43,6 +48,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         prepare(folderURLs: watchedFolderURLs(), notifyUser: true)
     }
 
+    @objc private func toggleUnrealMaterialEnrichment(_ sender: Any?) {
+        let newValue = !PreparedDocumentSettings.isUnrealMaterialEnrichmentEnabled()
+        PreparedDocumentSettings.setUnrealMaterialEnrichmentEnabled(newValue)
+        updateToggleStates()
+        prepare(folderURLs: watchedFolderURLs(), notifyUser: true)
+    }
+
     @objc private func quitApp(_ sender: Any?) {
         NSApplication.shared.terminate(nil)
     }
@@ -54,15 +66,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle: "Ajouter des dossiers…", action: #selector(chooseFolders(_:)), keyEquivalent: "")
         menu.addItem(withTitle: "Réanalyser les dossiers", action: #selector(rescanFolders(_:)), keyEquivalent: "")
+        menu.addItem(unrealMaterialToggleItem)
         menu.addItem(.separator())
         statusLabelItem.isEnabled = false
         menu.addItem(statusLabelItem)
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quitter", action: #selector(quitApp(_:)), keyEquivalent: "q")
         menu.items.forEach { $0.target = self }
+        updateToggleStates()
 
         item.menu = menu
         statusItem = item
+    }
+
+    private func updateToggleStates() {
+        unrealMaterialToggleItem.state = PreparedDocumentSettings.isUnrealMaterialEnrichmentEnabled() ? .on : .off
     }
 
     private func presentFolderPicker() {
@@ -210,6 +228,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Nouveaux caches : \(summary.documentsPrepared)
         Déjà à jour : \(summary.documentsSkipped)
         Échecs : \(summary.failures.count)
+        Matériaux Unreal : \(PreparedDocumentSettings.isUnrealMaterialEnrichmentEnabled() ? "activés" : "désactivés")
         """
         alert.alertStyle = summary.failures.isEmpty ? .informational : .warning
         if let firstFailure = summary.failures.first {

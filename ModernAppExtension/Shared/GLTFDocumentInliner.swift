@@ -8,11 +8,21 @@ struct PreparedGLTFDocument {
 }
 
 enum GLTFDocumentInliner {
-    static func prepareDocument(at url: URL) throws -> PreparedGLTFDocument {
+    static func prepareDocument(
+        at url: URL,
+        options: PreparedDocumentPreparationOptions = .current()
+    ) throws -> PreparedGLTFDocument {
         let documentData = try Data(contentsOf: url)
         var rootObject = try parsedRootObject(from: documentData)
         let baseDirectoryURL = url.deletingLastPathComponent()
-        let resourceURLs = localResourceURLs(in: rootObject, relativeTo: baseDirectoryURL)
+        var additionalResourceURLs: [URL] = []
+
+        if options.enrichUsingUnrealMaterialProps {
+            let enrichmentResult = UnrealMaterialEnricher.enrich(rootObject: &rootObject, documentURL: url)
+            additionalResourceURLs = enrichmentResult.additionalResourceURLs
+        }
+
+        let resourceURLs = localResourceURLs(in: rootObject, relativeTo: baseDirectoryURL) + additionalResourceURLs
 
         if var buffers = rootObject["buffers"] as? [[String: Any]] {
             for index in buffers.indices {
@@ -41,15 +51,25 @@ enum GLTFDocumentInliner {
         }
 
         let preparedData = try JSONSerialization.data(withJSONObject: rootObject, options: [])
-        let metadata = try makeMetadata(for: documentData, resourceURLs: resourceURLs)
+        let metadata = try makeMetadata(for: documentData, resourceURLs: resourceURLs, options: options)
         return PreparedGLTFDocument(data: preparedData, metadata: metadata)
     }
 
-    static func metadata(for url: URL) throws -> PreparedDocumentCacheMetadata {
+    static func metadata(
+        for url: URL,
+        options: PreparedDocumentPreparationOptions = .current()
+    ) throws -> PreparedDocumentCacheMetadata {
         let documentData = try Data(contentsOf: url)
         let rootObject = try parsedRootObject(from: documentData)
-        let resourceURLs = localResourceURLs(in: rootObject, relativeTo: url.deletingLastPathComponent())
-        return try makeMetadata(for: documentData, resourceURLs: resourceURLs)
+        var resourceURLs = localResourceURLs(in: rootObject, relativeTo: url.deletingLastPathComponent())
+
+        if options.enrichUsingUnrealMaterialProps {
+            var enrichedRootObject = rootObject
+            let enrichmentResult = UnrealMaterialEnricher.enrich(rootObject: &enrichedRootObject, documentURL: url)
+            resourceURLs += enrichmentResult.additionalResourceURLs
+        }
+
+        return try makeMetadata(for: documentData, resourceURLs: resourceURLs, options: options)
     }
 
     private static func parsedRootObject(from documentData: Data) throws -> [String: Any] {
@@ -100,18 +120,33 @@ enum GLTFDocumentInliner {
         return "data:\(mimeType);base64,\(data.base64EncodedString())"
     }
 
-    private static func makeMetadata(for documentData: Data, resourceURLs: [URL]) throws -> PreparedDocumentCacheMetadata {
+    private static func makeMetadata(
+        for documentData: Data,
+        resourceURLs: [URL],
+        options: PreparedDocumentPreparationOptions
+    ) throws -> PreparedDocumentCacheMetadata {
         let sourceDigest = SHA256.hash(data: documentData).map { String(format: "%02x", $0) }.joined()
-        let resources = try resourceURLs.map { resourceURL in
+        var seenPaths: Set<String> = []
+        let resources = try resourceURLs.compactMap { resourceURL -> PreparedDocumentResourceFingerprint? in
+            let standardizedURL = resourceURL.standardizedFileURL
+            guard seenPaths.insert(standardizedURL.path).inserted else {
+                return nil
+            }
+
             let values = try resourceURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
             return PreparedDocumentResourceFingerprint(
-                path: resourceURL.standardizedFileURL.path,
+                path: standardizedURL.path,
                 fileSize: Int64(values.fileSize ?? 0),
                 modificationIntervalSince1970: values.contentModificationDate?.timeIntervalSince1970 ?? 0
             )
         }
 
-        return PreparedDocumentCacheMetadata(version: 1, sourceSHA256: sourceDigest, resources: resources)
+        return PreparedDocumentCacheMetadata(
+            version: 2,
+            preparationFlavor: options.preparationFlavor,
+            sourceSHA256: sourceDigest,
+            resources: resources
+        )
     }
 
     private static func inferredMimeType(for fileURL: URL, fallback: String = "application/octet-stream") -> String {
