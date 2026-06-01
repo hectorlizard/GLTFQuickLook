@@ -19,7 +19,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private var folderMonitor: FolderEventMonitor?
     private var automaticPreparationWorkItem: DispatchWorkItem?
-    private var pendingAutomaticFolderPaths: Set<String> = []
+    private var pendingAutomaticTargetPaths: Set<String> = []
     private var isPreparing = false
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
@@ -36,14 +36,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         refreshFolderMonitoring()
-        prepare(folderURLs: savedFolderURLs, notifyUser: false)
+        statusLabelItem.title = "Surveillance active"
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
         let folderURLs = urls.map { $0.hasDirectoryPath ? $0 : $0.deletingLastPathComponent() }
         addWatchedFolders(folderURLs)
         refreshFolderMonitoring()
-        prepare(folderURLs: watchedFolderURLs(), notifyUser: true)
+        prepare(folderURLs: folderURLs, notifyUser: true)
     }
 
     @objc private func chooseFolders(_ sender: Any?) {
@@ -110,7 +110,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if panel.runModal() == .OK {
             addWatchedFolders(panel.urls)
             refreshFolderMonitoring()
-            prepare(folderURLs: watchedFolderURLs(), notifyUser: true)
+            prepare(folderURLs: panel.urls, notifyUser: true)
         }
     }
 
@@ -162,7 +162,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshFolderMonitoring() {
         automaticPreparationWorkItem?.cancel()
         automaticPreparationWorkItem = nil
-        pendingAutomaticFolderPaths.removeAll()
+        pendingAutomaticTargetPaths.removeAll()
 
         folderMonitor?.stop()
         folderMonitor = nil
@@ -173,9 +173,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let monitor = FolderEventMonitor(rootURLs: folderURLs) { [weak self] changedRoots in
+        let monitor = FolderEventMonitor(rootURLs: folderURLs) { [weak self] changedTargets in
             DispatchQueue.main.async {
-                self?.scheduleAutomaticPreparation(for: changedRoots)
+                self?.scheduleAutomaticPreparation(for: changedTargets)
             }
         }
         monitor.start()
@@ -184,13 +184,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         logger.notice("Watching \(folderURLs.count, privacy: .public) folders for automatic preparation")
     }
 
-    private func scheduleAutomaticPreparation(for folderURLs: [URL]) {
-        let folderPaths = folderURLs.map { $0.standardizedFileURL.path }
-        guard !folderPaths.isEmpty else {
+    private func scheduleAutomaticPreparation(for urls: [URL]) {
+        let targetPaths = urls.map { $0.standardizedFileURL.path }
+        guard !targetPaths.isEmpty else {
             return
         }
 
-        pendingAutomaticFolderPaths.formUnion(folderPaths)
+        pendingAutomaticTargetPaths.formUnion(targetPaths)
         automaticPreparationWorkItem?.cancel()
 
         let workItem = DispatchWorkItem { [weak self] in
@@ -205,7 +205,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func runScheduledAutomaticPreparationIfPossible() {
-        guard !pendingAutomaticFolderPaths.isEmpty else {
+        guard !pendingAutomaticTargetPaths.isEmpty else {
             return
         }
 
@@ -218,10 +218,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let folderURLs = pendingAutomaticFolderPaths
+        let folderURLs = pendingAutomaticTargetPaths
             .sorted()
-            .map { URL(fileURLWithPath: $0, isDirectory: true) }
-        pendingAutomaticFolderPaths.removeAll()
+            .map { path -> URL in
+                var isDirectory: ObjCBool = false
+                FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+                return URL(fileURLWithPath: path, isDirectory: isDirectory.boolValue)
+            }
+        pendingAutomaticTargetPaths.removeAll()
         prepare(folderURLs: folderURLs, notifyUser: false)
     }
 

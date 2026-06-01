@@ -22,7 +22,7 @@ final class FolderEventMonitor {
     private static let watchedExtensions: Set<String> = [
         "gltf", "glb", "bin",
         "png", "jpg", "jpeg", "webp", "bmp", "gif", "tga",
-        "ktx", "ktx2", "basis", "dds"
+        "ktx", "ktx2", "basis", "dds", "txt"
     ]
 
     private let rootURLs: [URL]
@@ -82,27 +82,38 @@ final class FolderEventMonitor {
     }
 
     private func handleEvents(paths: [String], flags: [FSEventStreamEventFlags]) {
-        var changedRootPaths: Set<String> = []
+        var changedTargets: Set<String> = []
 
         for (path, flag) in zip(paths, flags) {
             guard isRelevantEvent(path: path, flag: flag) else {
                 continue
             }
 
-            guard let rootPath = rootPaths.first(where: { path == $0 || path.hasPrefix($0 + "/") }) else {
+            guard rootPaths.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) else {
                 continue
             }
-            changedRootPaths.insert(rootPath)
+
+            let fileURL = URL(fileURLWithPath: path).standardizedFileURL
+            let pathExtension = fileURL.pathExtension.lowercased()
+            if pathExtension == "gltf" {
+                changedTargets.insert(fileURL.path)
+            } else {
+                changedTargets.insert(fileURL.deletingLastPathComponent().path)
+            }
         }
 
-        guard !changedRootPaths.isEmpty else {
+        guard !changedTargets.isEmpty else {
             return
         }
 
-        let changedRootURLs = changedRootPaths
+        let changedURLs = changedTargets
             .sorted()
-            .map { URL(fileURLWithPath: $0, isDirectory: true) }
-        onChange(changedRootURLs)
+            .map { path -> URL in
+                var isDirectory: ObjCBool = false
+                FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+                return URL(fileURLWithPath: path, isDirectory: isDirectory.boolValue)
+            }
+        onChange(changedURLs)
     }
 
     private func isRelevantEvent(path: String, flag: FSEventStreamEventFlags) -> Bool {
