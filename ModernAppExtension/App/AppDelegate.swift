@@ -24,6 +24,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         configureStatusItem()
+        addDefaultWatchedFoldersIfNeeded()
 
         let savedFolderURLs = watchedFolderURLs()
         print("GLTFQuickLook host launched with \(savedFolderURLs.count) watched folders")
@@ -116,6 +117,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func watchedFolderURLs() -> [URL] {
         let paths = UserDefaults.standard.stringArray(forKey: watchedFoldersKey) ?? []
         return paths.map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    private func addDefaultWatchedFoldersIfNeeded() {
+        let defaultPaths = defaultWatchedFolderURLs()
+            .map { $0.standardizedFileURL.path }
+        guard !defaultPaths.isEmpty else {
+            return
+        }
+
+        let existingPaths = Set(UserDefaults.standard.stringArray(forKey: watchedFoldersKey) ?? [])
+        let missingPaths = defaultPaths.filter { !existingPaths.contains($0) }
+        guard !missingPaths.isEmpty else {
+            return
+        }
+
+        let mergedPaths = Array(existingPaths.union(missingPaths)).sorted()
+        UserDefaults.standard.set(mergedPaths, forKey: watchedFoldersKey)
+        let joinedPaths = missingPaths.joined(separator: ", ")
+        logger.notice("Added default watched folders: \(joinedPaths, privacy: .public)")
+    }
+
+    private func defaultWatchedFolderURLs() -> [URL] {
+        let downloadsURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Downloads", isDirectory: true)
+
+        guard FileManager.default.fileExists(atPath: downloadsURL.path) else {
+            return []
+        }
+
+        return [downloadsURL]
     }
 
     private func addWatchedFolders(_ urls: [URL]) {
