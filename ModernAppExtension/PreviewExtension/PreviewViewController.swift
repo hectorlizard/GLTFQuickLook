@@ -14,28 +14,41 @@ class PreviewViewController: NSViewController, QLPreviewingController {
         self.sceneView.backgroundColor = NSColor.windowBackgroundColor
         self.sceneView.allowsCameraControl = true
         self.sceneView.autoenablesDefaultLighting = true
+        self.sceneView.rendersContinuously = false
         self.view = self.sceneView
     }
     
     func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                let loadResult = try SceneLoadCoordinator.loadScene(at: url)
-                
-                DispatchQueue.main.async {
-                    self.sceneView.scene = loadResult.scene
-                    self.sceneView.pointOfView = loadResult.pointOfView
-                    self.logger.notice(
-                        "Preview loaded for \(url.lastPathComponent, privacy: .public) geometry=\(loadResult.geometryNodeCount, privacy: .public) cameras=\(loadResult.cameraNodeCount, privacy: .public)"
-                    )
-                    handler(nil)
-                }
-            } catch {
-                self.logger.error("Preview failed for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                DispatchQueue.main.async {
-                    handler(error)
+            autoreleasepool {
+                do {
+                    let loadedScene = try SceneLoadCoordinator.loadScene(at: url)
+                    let loadResult = SceneLoadCoordinator.optimizedRenderScene(from: loadedScene, purpose: "preview")
+
+                    DispatchQueue.main.async {
+                        self.sceneView.scene = nil
+                        self.applyRenderingConfiguration(isDenseScene: loadResult.isDenseScene)
+                        self.sceneView.scene = loadResult.scene
+                        self.sceneView.pointOfView = loadResult.pointOfView
+                        self.logger.notice(
+                            """
+                            Preview loaded for \(url.lastPathComponent, privacy: .public) geometry=\(loadResult.geometryNodeCount, privacy: .public) cameras=\(loadResult.cameraNodeCount, privacy: .public) dense=\(loadResult.isDenseScene, privacy: .public)
+                            """
+                        )
+                        handler(nil)
+                    }
+                } catch {
+                    self.logger.error("Preview failed for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    DispatchQueue.main.async {
+                        handler(error)
+                    }
                 }
             }
         }
+    }
+
+    private func applyRenderingConfiguration(isDenseScene: Bool) {
+        sceneView.antialiasingMode = isDenseScene ? .none : .multisampling4X
+        sceneView.preferredFramesPerSecond = isDenseScene ? 15 : 60
     }
 }

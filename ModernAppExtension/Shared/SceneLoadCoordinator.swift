@@ -8,10 +8,14 @@ struct SceneLoadResult {
     let pointOfView: SCNNode
     let geometryNodeCount: Int
     let cameraNodeCount: Int
+    let totalNodeCount: Int
+    let isDenseScene: Bool
 }
 
 enum SceneLoadCoordinator {
     private static let logger = Logger(subsystem: "com.hectorlizard.GLTFQuickLook", category: "SceneLoad")
+    private static let denseSceneGeometryThreshold = 4_000
+    private static let denseSceneNodeThreshold = 10_000
 
     static func loadScene(at url: URL) throws -> SceneLoadResult {
         let fileScope = url.startAccessingSecurityScopedResource()
@@ -32,22 +36,64 @@ enum SceneLoadCoordinator {
         let source = makeSceneSource(for: url)
         let scene = try source.scene()
 
-        let geometryNodeCount = countNodes(in: scene.rootNode) { $0.geometry != nil }
+        let initialGeometryNodeCount = countNodes(in: scene.rootNode) { $0.geometry != nil }
+        let initialTotalNodeCount = countNodes(in: scene.rootNode) { _ in true }
         let cameraNodes = collectNodes(in: scene.rootNode) { $0.camera != nil }
+
+        let isDenseScene = shouldTreatAsDenseScene(
+            geometryNodeCount: initialGeometryNodeCount,
+            totalNodeCount: initialTotalNodeCount
+        )
         let pointOfView = cameraNodes.first ?? makeFallbackCamera(for: scene)
 
         let (boundsMin, boundsMax) = scene.rootNode.boundingBox
         logger.debug(
             """
-            Scene loaded for \(url.lastPathComponent, privacy: .public) geometryNodes=\(geometryNodeCount, privacy: .public) cameras=\(cameraNodes.count, privacy: .public) boundsMin=(\(boundsMin.x, privacy: .public), \(boundsMin.y, privacy: .public), \(boundsMin.z, privacy: .public)) boundsMax=(\(boundsMax.x, privacy: .public), \(boundsMax.y, privacy: .public), \(boundsMax.z, privacy: .public))
+            Scene loaded for \(url.lastPathComponent, privacy: .public) geometryNodes=\(initialGeometryNodeCount, privacy: .public) totalNodes=\(initialTotalNodeCount, privacy: .public) cameras=\(cameraNodes.count, privacy: .public) dense=\(isDenseScene, privacy: .public) boundsMin=(\(boundsMin.x, privacy: .public), \(boundsMin.y, privacy: .public), \(boundsMin.z, privacy: .public)) boundsMax=(\(boundsMax.x, privacy: .public), \(boundsMax.y, privacy: .public), \(boundsMax.z, privacy: .public))
             """
         )
 
         return SceneLoadResult(
             scene: scene,
             pointOfView: pointOfView,
+            geometryNodeCount: initialGeometryNodeCount,
+            cameraNodeCount: cameraNodes.count,
+            totalNodeCount: initialTotalNodeCount,
+            isDenseScene: isDenseScene
+        )
+    }
+
+    static func optimizedRenderScene(from loadResult: SceneLoadResult, purpose: StaticString) -> SceneLoadResult {
+        guard loadResult.isDenseScene else {
+            return loadResult
+        }
+
+        logger.notice(
+            """
+            Simplifying dense scene for \(purpose, privacy: .public) geometryNodes=\(loadResult.geometryNodeCount, privacy: .public) totalNodes=\(loadResult.totalNodeCount, privacy: .public)
+            """
+        )
+
+        let optimizedScene = SCNScene()
+        let flattenedRoot = loadResult.scene.rootNode.flattenedClone()
+        optimizedScene.rootNode.addChildNode(flattenedRoot)
+        let pointOfView = makeFallbackCamera(for: optimizedScene)
+        let geometryNodeCount = countNodes(in: optimizedScene.rootNode) { $0.geometry != nil }
+        let totalNodeCount = countNodes(in: optimizedScene.rootNode) { _ in true }
+
+        logger.notice(
+            """
+            Dense scene simplified for \(purpose, privacy: .public) geometryNodes=\(geometryNodeCount, privacy: .public) totalNodes=\(totalNodeCount, privacy: .public)
+            """
+        )
+
+        return SceneLoadResult(
+            scene: optimizedScene,
+            pointOfView: pointOfView,
             geometryNodeCount: geometryNodeCount,
-            cameraNodeCount: cameraNodes.count
+            cameraNodeCount: 0,
+            totalNodeCount: totalNodeCount,
+            isDenseScene: true
         )
     }
 
@@ -78,6 +124,10 @@ enum SceneLoadCoordinator {
             }
         }
         return nodes
+    }
+
+    private static func shouldTreatAsDenseScene(geometryNodeCount: Int, totalNodeCount: Int) -> Bool {
+        geometryNodeCount >= denseSceneGeometryThreshold || totalNodeCount >= denseSceneNodeThreshold
     }
 
     private static func makeFallbackCamera(for scene: SCNScene) -> SCNNode {
