@@ -3,15 +3,22 @@ import OSLog
 import Quartz
 import SceneKit
 
+private final class TransparentSceneView: SCNView {
+    override var isOpaque: Bool { false }
+}
+
 class PreviewViewController: NSViewController, QLPreviewingController {
     private let logger = Logger(subsystem: "com.hectorlizard.GLTFQuickLook", category: "Preview")
     
     var sceneView: SCNView!
     
     override func loadView() {
-        self.sceneView = SCNView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        self.sceneView = TransparentSceneView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         self.sceneView.autoresizingMask = [.width, .height]
-        self.sceneView.backgroundColor = NSColor.windowBackgroundColor
+        // Let the Quick Look host supply its native light/dark background.
+        self.sceneView.backgroundColor = .clear
+        self.sceneView.wantsLayer = true
+        self.sceneView.layer?.isOpaque = false
         self.sceneView.allowsCameraControl = true
         self.sceneView.autoenablesDefaultLighting = true
         self.sceneView.rendersContinuously = false
