@@ -5,12 +5,28 @@ struct PreparedDocumentPreparationOptions: Equatable {
     let ignoreUniformRedVertexColors: Bool
 
     var preparationFlavor: String {
+        preparationFlavor(
+            optimizingOversizedAnimations: false,
+            normalizingSkinWeights: false
+        )
+    }
+
+    func preparationFlavor(
+        optimizingOversizedAnimations: Bool,
+        normalizingSkinWeights: Bool
+    ) -> String {
         var parts = ["base-v1"]
         if enrichUsingUnrealMaterialProps {
             parts.append("unreal-materials-v1")
         }
         if ignoreUniformRedVertexColors {
             parts.append("ignore-red-vertex-colors-v1")
+        }
+        if optimizingOversizedAnimations {
+            parts.append("limit-oversized-animations-10-v1")
+        }
+        if normalizingSkinWeights {
+            parts.append("normalize-skin-weights-v1")
         }
         return parts.joined(separator: "+")
     }

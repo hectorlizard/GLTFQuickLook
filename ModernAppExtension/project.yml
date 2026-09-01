@@ -19,6 +19,8 @@ targets:
       - path: Shared
         includes:
           - GLTFDocumentInliner.swift
+          - OversizedAnimationOptimizer.swift
+          - SkinWeightNormalizer.swift
           - PreparedDocumentAttributeStore.swift
           - PreparedDocumentPreparationOptions.swift
           - PreparedDocumentFileCache.swift
@@ -58,6 +60,8 @@ targets:
       - path: Shared
         includes:
           - GLTFDocumentInliner.swift
+          - OversizedAnimationOptimizer.swift
+          - SkinWeightNormalizer.swift
           - PreparedDocumentAttributeStore.swift
           - PreparedDocumentPreparationOptions.swift
           - PreparedDocumentFileCache.swift

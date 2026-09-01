@@ -22,12 +22,20 @@ enum GLTFDocumentInliner {
             additionalResourceURLs = enrichmentResult.additionalResourceURLs
         }
 
+        let normalizesSkinWeights = try SkinWeightNormalizer.normalize(
+            &rootObject,
+            relativeTo: baseDirectoryURL
+        )
+
         if options.ignoreUniformRedVertexColors {
             VertexColorSanitizer.removeUniformRedVertexColors(
                 from: &rootObject,
                 relativeTo: baseDirectoryURL
             )
         }
+
+        let optimizesOversizedAnimations = OversizedAnimationOptimizer.shouldOptimize(rootObject)
+        let maximumBufferByteLengths = OversizedAnimationOptimizer.optimize(&rootObject)
 
         let resourceURLs = localResourceURLs(in: rootObject, relativeTo: baseDirectoryURL) + additionalResourceURLs
 
@@ -39,7 +47,11 @@ enum GLTFDocumentInliner {
                 guard let resourceURL = localResourceURL(for: uri, relativeTo: baseDirectoryURL) else {
                     continue
                 }
-                buffers[index]["uri"] = try dataURI(for: resourceURL, fallbackMimeType: "application/octet-stream")
+                buffers[index]["uri"] = try dataURI(
+                    for: resourceURL,
+                    fallbackMimeType: "application/octet-stream",
+                    maximumByteLength: maximumBufferByteLengths[index]
+                )
             }
             rootObject["buffers"] = buffers
         }
@@ -58,7 +70,14 @@ enum GLTFDocumentInliner {
         }
 
         let preparedData = try JSONSerialization.data(withJSONObject: rootObject, options: [])
-        let metadata = try makeMetadata(for: documentData, resourceURLs: resourceURLs, options: options)
+        let metadata = try makeMetadata(
+            for: documentData,
+            resourceURLs: resourceURLs,
+            preparationFlavor: options.preparationFlavor(
+                optimizingOversizedAnimations: optimizesOversizedAnimations,
+                normalizingSkinWeights: normalizesSkinWeights
+            )
+        )
         return PreparedGLTFDocument(data: preparedData, metadata: metadata)
     }
 
@@ -76,7 +95,14 @@ enum GLTFDocumentInliner {
             resourceURLs += enrichmentResult.additionalResourceURLs
         }
 
-        return try makeMetadata(for: documentData, resourceURLs: resourceURLs, options: options)
+        return try makeMetadata(
+            for: documentData,
+            resourceURLs: resourceURLs,
+            preparationFlavor: options.preparationFlavor(
+                optimizingOversizedAnimations: OversizedAnimationOptimizer.shouldOptimize(rootObject),
+                normalizingSkinWeights: SkinWeightNormalizer.requiresNormalization(rootObject)
+            )
+        )
     }
 
     private static func parsedRootObject(from documentData: Data) throws -> [String: Any] {
@@ -121,8 +147,22 @@ enum GLTFDocumentInliner {
         return URL(fileURLWithPath: path, relativeTo: baseDirectoryURL).standardizedFileURL
     }
 
-    private static func dataURI(for fileURL: URL, fallbackMimeType: String) throws -> String {
-        let data = try Data(contentsOf: fileURL)
+    private static func dataURI(
+        for fileURL: URL,
+        fallbackMimeType: String,
+        maximumByteLength: Int? = nil
+    ) throws -> String {
+        let data: Data
+        if let maximumByteLength {
+            let handle = try FileHandle(forReadingFrom: fileURL)
+            defer { try? handle.close() }
+            data = try handle.read(upToCount: maximumByteLength) ?? Data()
+            guard data.count == maximumByteLength else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+        } else {
+            data = try Data(contentsOf: fileURL)
+        }
         let mimeType = inferredMimeType(for: fileURL, fallback: fallbackMimeType)
         return "data:\(mimeType);base64,\(data.base64EncodedString())"
     }
@@ -130,7 +170,7 @@ enum GLTFDocumentInliner {
     private static func makeMetadata(
         for documentData: Data,
         resourceURLs: [URL],
-        options: PreparedDocumentPreparationOptions
+        preparationFlavor: String
     ) throws -> PreparedDocumentCacheMetadata {
         let sourceDigest = SHA256.hash(data: documentData).map { String(format: "%02x", $0) }.joined()
         var seenPaths: Set<String> = []
@@ -146,11 +186,11 @@ enum GLTFDocumentInliner {
                 fileSize: Int64(values.fileSize ?? 0),
                 modificationIntervalSince1970: values.contentModificationDate?.timeIntervalSince1970 ?? 0
             )
-        }
+        }.sorted { $0.path < $1.path }
 
         return PreparedDocumentCacheMetadata(
             version: 2,
-            preparationFlavor: options.preparationFlavor,
+            preparationFlavor: preparationFlavor,
             sourceSHA256: sourceDigest,
             resources: resources
         )
