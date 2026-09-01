@@ -1,7 +1,7 @@
 # GLTFQuickLook
 macOS QuickLook plugin for glTF files. (.gltf/.glb)
 
-![GLTFQuickLook preview](gltf3.gif)
+![GLTFQuickLook preview](gltf-loop.gif)
 
 ## System Requirements
 
