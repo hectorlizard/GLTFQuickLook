@@ -1,60 +1,74 @@
-# GLTFQuickLook Modern App Extension
+# Modern App Extension
 
-This folder contains the modern macOS App Extension implementation of GLTFQuickLook for macOS 10.15 (Catalina) and newer, including full support for Apple Silicon (M1/M2/M3) and upcoming macOS versions like Sequoia.
+This directory contains the macOS 12+ implementation of GLTFQuickLook. The host
+is a menu-bar application that embeds a preview extension and a thumbnail
+extension. Unlike the legacy `.qlgenerator`, the host stays open so it can prepare
+sidecar-dependent models before sandboxed Quick Look processes request them.
 
-Apple deprecated `.qlgenerator` plugins and requires QuickLook extensions to be embedded inside a macOS application bag (`.app`).
+## Runtime Model
 
-## Installation
+GLB documents and self-contained glTF files are rendered directly. A `.gltf` that
+references external buffers or textures is converted into a self-contained cache.
+The cache is stored in an extended attribute on the source document, never by
+rewriting the original model.
 
-1. Download the latest `GLTFQuickLook.app` release.
-2. Drag and drop `GLTFQuickLook.app` into your `/Applications` folder.
-3. Open the app once (it will launch and exit immediately, registering the QuickLook extensions with macOS).
-4. Select any `.gltf` or `.glb` file in Finder and press `Space` to preview.
+The app watches `~/Downloads` by default and any additional folders selected from
+the `GLTFQL` menu. Relevant file changes trigger a targeted, debounced preparation
+rather than a full-library rescan.
 
-## Quick Look Appearance
+Optional compatibility processing includes:
 
-The interactive preview uses a transparent SceneKit view and a non-opaque backing
-layer so the Quick Look host supplies the background in Light and Dark Mode.
-This does not change scene lighting, materials, prepared caches, or Finder
-thumbnail generation. The exact background or translucency is controlled by
-macOS and its accessibility settings.
+- Unreal material reconstruction from sibling `Materials` and `Textures` trees.
+- Removal of uniform pure-red vertex colors used as export artifacts.
+- Inlining of external buffers, images, and data dependencies.
+- Normalization of integer skin weights rejected by SceneKit.
+- Compaction of exceptional uModel exports with at least 100 animations or 10,000
+  accessors; the prepared cache retains the first 10 animations.
 
-Verified on 2026-08-30 with `d2330e5c88fe40f1.glb` (Slippy Hollow) and
-`SM_TH08_RainbowMushrooms01.gltf` (Crash): both render visible geometry with zero
-background alpha under Aqua and Dark Aqua, including an appearance change on
-the same view.
+The interactive SceneKit view is transparent and lets the Quick Look host provide
+the correct Light or Dark Mode background.
 
-## Oversized Animated Exports
+## Build
 
-Quick Look caches automatically compact exceptional uModel character exports
-that contain at least 100 animation clips or 10,000 accessors. The source file
-is never modified: its full animation set remains available to other software.
-The prepared cache retains the first 10 animations and only the accessors,
-buffer views, and binary ranges required by the mesh, skin, textures, and those
-clips.
-
-Normalized integer skin weights are converted to float data inside the cache,
-because SceneKit otherwise refuses to construct the skinner. Ordinary glTF
-files remain unchanged. Cache resource fingerprints are sorted to prevent
-unchanged documents from being regenerated repeatedly.
-
-Verified on 2026-09-02 with `SK_CP3701_Crash.gltf` and `SK_CP3705_Neo.gltf`.
-Crash's prepared cache fell from about 397 MB to 14.8 MB; both files produced
-textured system thumbnails with working skins.
-
-## Build Setup
-
-To build this modern extension from source, you need [XcodeGen](https://github.com/yonaskolb/XcodeGen) and macOS 12.0+ with Xcode.
+Install XcodeGen and generate the project from the repository root:
 
 ```bash
-# Install XcodeGen
 brew install xcodegen
-
-# Generate the Xcode Project
-xcodegen
-
-# Open the project
-open GLTFQuickLook.xcodeproj
+xcodegen generate --spec ModernAppExtension/project.yml
+open ModernAppExtension/GLTFQuickLook.xcodeproj
 ```
 
-You can then build the `GLTFQuickLook` scheme directly from Xcode. Swift Package Manager will automatically fetch `GLTFSceneKit`.
+GLTFSceneKit is pinned in `project.yml` to the revision used by the release build.
+The `GLTFQuickLook` scheme builds the host and both extensions. `GLTFCachePrep` is
+the command-line preparation utility used for diagnostics.
+
+For a reproducible ad hoc signed artifact:
+
+```bash
+Scripts/package-release.sh
+```
+
+Artifacts are written to `dist/`. The public beta is Apple Silicon only; other
+architectures may be built from source but are not part of the tested binary.
+
+## Gatekeeper
+
+The public beta is ad hoc signed and not notarized. Users can approve it from
+**System Settings > Privacy & Security > Open Anyway**. If macOS keeps the embedded
+extensions quarantined, remove quarantine from the complete bundle:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/GLTFQuickLook.app
+open /Applications/GLTFQuickLook.app
+```
+
+## Cache Limitations
+
+Prepared caches depend on extended attributes. Filesystems that do not support
+large extended attributes can reject or discard them. Copying a glTF file through
+some archives, cloud providers, or Windows-oriented volumes can also remove the
+cache; using **Reanalyser les dossiers** regenerates it without modifying the source
+model.
+
+The host scans only local folders configured by the user plus `~/Downloads`. It
+does not upload model data or include analytics.

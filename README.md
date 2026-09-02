@@ -1,53 +1,106 @@
 # GLTFQuickLook
-macOS QuickLook plugin for glTF files. (.gltf/.glb)
 
-![ScreenShot](https://github.com/magicien/GLTFQuickLook/blob/master/screenshot.png)
+Finder thumbnails and interactive Quick Look previews for `.gltf` and `.glb`
+files on modern macOS.
 
-![ScreenShot2](https://github.com/magicien/GLTFQuickLook/blob/master/screenshot2.gif)
+![GLTFQuickLook preview](screenshot.png)
 
-## System Requirements
+## Modern Extension
 
-- macOS 10.13 (High Sierra) or later
+The modern application is the recommended version for macOS 12 and later. The
+current downloadable build targets Apple Silicon. It embeds both a Quick Look
+preview extension and a Finder thumbnail extension.
 
-> **Note for macOS 10.15+ and Apple Silicon**: Apple has deprecated `.qlgenerator` plugins and they are fully unsupported in macOS 15 (Sequoia). There are now two versions of this project available:
-> - **Legacy** (`.qlgenerator`): For macOS 10.13 and 10.14 (see instructions below).
-> - **Modern** (App Extension): For macOS 10.15+, including native Apple Silicon support. See the [ModernAppExtension folder](ModernAppExtension/) for details.
+Highlights:
 
-## Install (Modern - macOS 10.15+)
+- Interactive SceneKit previews with a native transparent Quick Look background.
+- Finder thumbnails for binary GLB and sidecar-based glTF documents.
+- Automatic preparation of downloaded and user-selected glTF folders.
+- Support for dense Sketchfab exports and large uModel documents.
+- Optional Unreal material reconstruction from sibling `.props.txt` and texture files.
+- Oversized animated exports retain their first 10 animation clips in the prepared cache.
+- Source models are never rewritten; compatibility data is stored in extended attributes.
 
-1. Download the latest `GLTFQuickLook.app` release from [Releases](https://github.com/magicien/GLTFQuickLook/releases/latest).
-2. Drag and drop `GLTFQuickLook.app` into your `/Applications` folder.
-3. Open the app **once** (it will casually launch and exit, registering the extension with macOS).
-4. Run `qlmanage -r` to reload QuickLook plugins.
+## Install
 
-## Install (Legacy - macOS 10.13, 10.14)
+The beta download is ad hoc signed rather than Apple-notarized. macOS may show a
+warning because the build does not come from the App Store or an identified
+developer.
 
-### Using [Homebrew Cask](https://github.com/phinze/homebrew-cask)
+1. Download `GLTFQuickLook-1.1.0-beta.1-macos-arm64.zip` from this repository's
+   [Releases](https://github.com/Hectorlizard/GLTFQuickLook/releases) page.
+2. Move `GLTFQuickLook.app` to `/Applications`.
+3. Open the app. If macOS blocks it, open **System Settings > Privacy & Security**,
+   click **Open Anyway**, then confirm.
+4. If Quick Look still refuses to load the extensions, run:
 
-- Run `brew install gltfquicklook`
-- Run `xattr -r -d com.apple.quarantine ~/Library/QuickLook/GLTFQuickLook.qlgenerator` to allow GLTFQuickLook.qlgenerator to run.
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/GLTFQuickLook.app
+   open /Applications/GLTFQuickLook.app
+   ```
 
-### Manually
+5. Keep the `GLTFQL` menu-bar app running. `~/Downloads` is monitored
+   automatically; use **Ajouter des dossiers...** in the menu for other model libraries.
 
-1. Download **GLTFQuickLook_vX.X.X.zip** from [Releases](https://github.com/magicien/GLTFQuickLook/releases/latest).
-2. Put **GLTFQuickLook.qlgenerator** (in the zip file) into `/Library/QuickLook` (for all users) or `~/Library/QuickLook` (only for the logged-in user).
-3. Run `sudo xattr -r -d com.apple.quarantine /Library/QuickLook/GLTFQuickLook.qlgenerator` or `xattr -r -d com.apple.quarantine ~/Library/QuickLook/GLTFQuickLook.qlgenerator` to allow GLTFQuickLook.qlgenerator to run.
-4. Run `qlmanage -r` command to reload QuickLook plugins.
+Select a `.gltf` or `.glb` file in Finder and press Space. Thumbnail preparation
+can take a little while when a folder contains many large models.
+
+## Privacy and Storage
+
+GLTFQuickLook works locally and does not upload models or usage data. The host app
+monitors `~/Downloads` plus folders explicitly selected by the user. For sidecar
+glTF documents, it stores a self-contained prepared copy as an extended attribute
+on the source `.gltf`; the original file and its animation set remain unchanged.
+
+Extended attributes work well on APFS and most local macOS volumes, but some
+network, cloud, archive, or non-Mac filesystems can remove them or impose a size
+limit. In that case the original model can still be opened by other software, but
+the prepared Quick Look cache may need to be regenerated.
+
+## Troubleshooting
+
+If previews disappear after a macOS update or after replacing the app:
+
+```bash
+open /Applications/GLTFQuickLook.app
+qlmanage -r
+killall Finder
+```
+
+Then use **Reanalyser les dossiers** from the `GLTFQL` menu. Avoid installing two
+copies of the app at the same time because macOS may register the wrong extension
+bundle.
 
 ## Build
 
-### Modern App Extension (Recommended for macOS 12+)
-See the [ModernAppExtension/README.md](ModernAppExtension/README.md) for build instructions using `xcodegen` and Swift Package Manager.
+The modern project requires Xcode, Swift Package Manager, and
+[XcodeGen](https://github.com/yonaskolb/XcodeGen). GLTFSceneKit is pinned to the
+revision validated for this release.
 
-### Legacy (.qlgenerator)
-It needs to install [Carthage](https://github.com/Carthage/Carthage) to get frameworks.
+```bash
+brew install xcodegen
+xcodegen generate --spec ModernAppExtension/project.yml
+xcodebuild \
+  -project ModernAppExtension/GLTFQuickLook.xcodeproj \
+  -scheme GLTFQuickLook \
+  -configuration Release \
+  build
 ```
-$ git clone https://github.com/magicien/GLTFQuickLook.git
-$ cd GLTFQuickLook
-$ carthage bootstrap --platform mac
-$ xcodebuild
-```
 
-## See also
+Run `Scripts/package-release.sh` to produce the same ad hoc signed Apple Silicon
+ZIP and SHA-256 checksum used by the GitHub release workflow.
 
-- [GLTFSceneKit](https://github.com/magicien/GLTFSceneKit/) - glTF loader for SceneKit
+## Legacy Plugin
+
+The original `.qlgenerator` implementation remains in this repository for older
+macOS versions. Apple no longer supports that extension mechanism on current
+macOS releases. See the [original project](https://github.com/magicien/GLTFQuickLook)
+for its historical installation instructions.
+
+## Credits
+
+GLTFQuickLook was created by [magicien](https://github.com/magicien). The modern
+App Extension and current compatibility work are maintained by
+[Hectorlizard](https://github.com/Hectorlizard).
+
+Released under the [MIT License](LICENSE).
