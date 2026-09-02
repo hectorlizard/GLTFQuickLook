@@ -3,7 +3,7 @@
 Finder thumbnails and interactive Quick Look previews for `.gltf` and `.glb`
 files on modern macOS.
 
-![GLTFQuickLook preview](screenshot.png)
+![GLTFQuickLook preview](gltf.gif)
 
 ## Modern Extension
 
