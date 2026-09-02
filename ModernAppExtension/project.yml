@@ -3,23 +3,39 @@ options:
   bundleIdPrefix: com.hectorlizard
 settings:
   CODE_SIGN_IDENTITY: "-"
-  MARKETING_VERSION: "1.0"
-  CURRENT_PROJECT_VERSION: "1"
+  CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+  MARKETING_VERSION: "1.1.0"
+  CURRENT_PROJECT_VERSION: "2"
 packages:
   GLTFSceneKit:
     url: https://github.com/magicien/GLTFSceneKit.git
-    branch: master
+    revision: a9587ec5c6515ee7d036533fdd909815a9a718ef
 targets:
   GLTFQuickLook:
     type: application
     platform: macOS
     deploymentTarget: "12.0"
-    sources: App
+    sources:
+      - path: App
+      - path: Shared
+        includes:
+          - GLTFDocumentInliner.swift
+          - OversizedAnimationOptimizer.swift
+          - SkinWeightNormalizer.swift
+          - PreparedDocumentAttributeStore.swift
+          - PreparedDocumentPreparationOptions.swift
+          - PreparedDocumentFileCache.swift
+          - PreparedDocumentPreparer.swift
+          - UnrealMaterialEnricher.swift
+          - UnrealMaterialProps.swift
+          - VertexColorSanitizer.swift
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.hectorlizard.GLTFQuickLook
     info:
       path: App/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSUIElement: true
         UTExportedTypeDeclarations:
           - UTTypeIdentifier: org.khronos.gltf
@@ -38,18 +54,42 @@ targets:
       - target: GLTFPreview
       - target: GLTFThumbnail
 
+  GLTFCachePrep:
+    type: tool
+    platform: macOS
+    deploymentTarget: "12.0"
+    sources:
+      - path: Tools/CachePrep
+      - path: Shared
+        includes:
+          - GLTFDocumentInliner.swift
+          - OversizedAnimationOptimizer.swift
+          - SkinWeightNormalizer.swift
+          - PreparedDocumentAttributeStore.swift
+          - PreparedDocumentPreparationOptions.swift
+          - PreparedDocumentFileCache.swift
+          - PreparedDocumentPreparer.swift
+          - UnrealMaterialEnricher.swift
+          - UnrealMaterialProps.swift
+          - VertexColorSanitizer.swift
+
   GLTFPreview:
     type: app-extension
     platform: macOS
     deploymentTarget: "12.0"
-    sources: PreviewExtension
+    sources:
+      - path: PreviewExtension
+      - path: Shared
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.hectorlizard.GLTFQuickLook.GLTFPreview
       ENABLE_HARDENED_RUNTIME: YES
       ENABLE_APP_SANDBOX: YES
+      CODE_SIGN_ENTITLEMENTS: PreviewExtension/Preview.entitlements
     info:
       path: PreviewExtension/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: GLTF Preview
         NSExtension:
           NSExtensionAttributes:
@@ -64,14 +104,19 @@ targets:
     type: app-extension
     platform: macOS
     deploymentTarget: "12.0"
-    sources: ThumbnailExtension
+    sources:
+      - path: ThumbnailExtension
+      - path: Shared
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.hectorlizard.GLTFQuickLook.GLTFThumbnail
       ENABLE_HARDENED_RUNTIME: YES
       ENABLE_APP_SANDBOX: YES
+      CODE_SIGN_ENTITLEMENTS: ThumbnailExtension/Thumbnail.entitlements
     info:
       path: ThumbnailExtension/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: GLTF Thumbnail
         NSExtension:
           NSExtensionAttributes:

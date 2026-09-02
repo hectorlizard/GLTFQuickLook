@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [master, "release/**"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Check release hygiene
+        run: Scripts/check-release-hygiene.sh
+
+      - name: Generate project
+        run: xcodegen generate --spec ModernAppExtension/project.yml
+
+      - name: Build modern extension
+        run: |
+          xcodebuild \
+            -project ModernAppExtension/GLTFQuickLook.xcodeproj \
+            -scheme GLTFQuickLook \
+            -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/GLTFQuickLookDerivedData" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY=- \
+            build
+
+      - name: Verify embedded extensions
+        run: |
+          APP="$RUNNER_TEMP/GLTFQuickLookDerivedData/Build/Products/Release/GLTFQuickLook.app"
+          test -d "$APP/Contents/PlugIns/GLTFPreview.appex"
+          test -d "$APP/Contents/PlugIns/GLTFThumbnail.appex"
+          codesign --verify --deep --strict "$APP"

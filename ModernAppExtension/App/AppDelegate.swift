@@ -1,10 +1,289 @@
 import Cocoa
+import OSLog
 
-@main
 class AppDelegate: NSObject, NSApplicationDelegate {
+    private let logger = Logger(subsystem: "com.hectorlizard.GLTFQuickLook", category: "HostApp")
+    private let watchedFoldersKey = "WatchedFolderPaths"
+    private let automaticPreparationDelay: TimeInterval = 1.5
+    private var statusItem: NSStatusItem?
+    private var statusLabelItem = NSMenuItem(title: "Prêt", action: nil, keyEquivalent: "")
+    private lazy var unrealMaterialToggleItem = NSMenuItem(
+        title: "Enrichir avec matériaux Unreal",
+        action: #selector(toggleUnrealMaterialEnrichment(_:)),
+        keyEquivalent: ""
+    )
+    private lazy var redVertexColorToggleItem = NSMenuItem(
+        title: "Ignorer les vertex colors rouge pur",
+        action: #selector(toggleUniformRedVertexColorIgnoring(_:)),
+        keyEquivalent: ""
+    )
+    private var folderMonitor: FolderEventMonitor?
+    private var automaticPreparationWorkItem: DispatchWorkItem?
+    private var pendingAutomaticTargetPaths: Set<String> = []
+    private var isPreparing = false
+
     func applicationDidFinishLaunching(_ aNotification: Notification) {
-        // Just print and exit gracefully, we just need Finder to register UTIs and Extensions.
-        print("GLTFQuickLook App registered. You can close this app.")
+        configureStatusItem()
+        addDefaultWatchedFoldersIfNeeded()
+
+        let savedFolderURLs = watchedFolderURLs()
+        print("GLTFQuickLook host launched with \(savedFolderURLs.count) watched folders")
+        logger.notice("Host app launched with \(savedFolderURLs.count, privacy: .public) watched folders")
+        if savedFolderURLs.isEmpty {
+            logger.notice("No watched folders yet, opening folder picker")
+            presentFolderPicker()
+            return
+        }
+
+        refreshFolderMonitoring()
+        statusLabelItem.title = "Surveillance active"
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        let folderURLs = urls.map { $0.hasDirectoryPath ? $0 : $0.deletingLastPathComponent() }
+        addWatchedFolders(folderURLs)
+        refreshFolderMonitoring()
+        prepare(folderURLs: folderURLs, notifyUser: true)
+    }
+
+    @objc private func chooseFolders(_ sender: Any?) {
+        presentFolderPicker()
+    }
+
+    @objc private func rescanFolders(_ sender: Any?) {
+        prepare(folderURLs: watchedFolderURLs(), notifyUser: true)
+    }
+
+    @objc private func toggleUnrealMaterialEnrichment(_ sender: Any?) {
+        let newValue = !PreparedDocumentSettings.isUnrealMaterialEnrichmentEnabled()
+        PreparedDocumentSettings.setUnrealMaterialEnrichmentEnabled(newValue)
+        updateToggleStates()
+        prepare(folderURLs: watchedFolderURLs(), notifyUser: true)
+    }
+
+    @objc private func toggleUniformRedVertexColorIgnoring(_ sender: Any?) {
+        let newValue = !PreparedDocumentSettings.isUniformRedVertexColorIgnoringEnabled()
+        PreparedDocumentSettings.setUniformRedVertexColorIgnoringEnabled(newValue)
+        updateToggleStates()
+        prepare(folderURLs: watchedFolderURLs(), notifyUser: true)
+    }
+
+    @objc private func quitApp(_ sender: Any?) {
         NSApplication.shared.terminate(nil)
+    }
+
+    private func configureStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.title = "GLTFQL"
+
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Ajouter des dossiers…", action: #selector(chooseFolders(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Réanalyser les dossiers", action: #selector(rescanFolders(_:)), keyEquivalent: "")
+        menu.addItem(unrealMaterialToggleItem)
+        menu.addItem(redVertexColorToggleItem)
+        menu.addItem(.separator())
+        statusLabelItem.isEnabled = false
+        menu.addItem(statusLabelItem)
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Quitter", action: #selector(quitApp(_:)), keyEquivalent: "q")
+        menu.items.forEach { $0.target = self }
+        updateToggleStates()
+
+        item.menu = menu
+        statusItem = item
+    }
+
+    private func updateToggleStates() {
+        unrealMaterialToggleItem.state = PreparedDocumentSettings.isUnrealMaterialEnrichmentEnabled() ? .on : .off
+        redVertexColorToggleItem.state = PreparedDocumentSettings.isUniformRedVertexColorIgnoringEnabled() ? .on : .off
+    }
+
+    private func presentFolderPicker() {
+        let panel = NSOpenPanel()
+        panel.title = "Choisir les dossiers glTF a preparer"
+        panel.message = "Selectionne les dossiers contenant tes exports .gltf pour generer automatiquement le cache Quick Look."
+        panel.prompt = "Preparer"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+
+        if panel.runModal() == .OK {
+            addWatchedFolders(panel.urls)
+            refreshFolderMonitoring()
+            prepare(folderURLs: panel.urls, notifyUser: true)
+        }
+    }
+
+    private func watchedFolderURLs() -> [URL] {
+        let paths = UserDefaults.standard.stringArray(forKey: watchedFoldersKey) ?? []
+        return paths.map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    private func addDefaultWatchedFoldersIfNeeded() {
+        let defaultPaths = defaultWatchedFolderURLs()
+            .map { $0.standardizedFileURL.path }
+        guard !defaultPaths.isEmpty else {
+            return
+        }
+
+        let existingPaths = Set(UserDefaults.standard.stringArray(forKey: watchedFoldersKey) ?? [])
+        let missingPaths = defaultPaths.filter { !existingPaths.contains($0) }
+        guard !missingPaths.isEmpty else {
+            return
+        }
+
+        let mergedPaths = Array(existingPaths.union(missingPaths)).sorted()
+        UserDefaults.standard.set(mergedPaths, forKey: watchedFoldersKey)
+        let joinedPaths = missingPaths.joined(separator: ", ")
+        logger.notice("Added default watched folders: \(joinedPaths, privacy: .public)")
+    }
+
+    private func defaultWatchedFolderURLs() -> [URL] {
+        let downloadsURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Downloads", isDirectory: true)
+
+        guard FileManager.default.fileExists(atPath: downloadsURL.path) else {
+            return []
+        }
+
+        return [downloadsURL]
+    }
+
+    private func addWatchedFolders(_ urls: [URL]) {
+        let existingPaths = Set(UserDefaults.standard.stringArray(forKey: watchedFoldersKey) ?? [])
+        let newPaths = urls
+            .map { $0.standardizedFileURL.path }
+            .filter { FileManager.default.fileExists(atPath: $0) }
+
+        let mergedPaths = Array(existingPaths.union(newPaths)).sorted()
+        UserDefaults.standard.set(mergedPaths, forKey: watchedFoldersKey)
+    }
+
+    private func refreshFolderMonitoring() {
+        automaticPreparationWorkItem?.cancel()
+        automaticPreparationWorkItem = nil
+        pendingAutomaticTargetPaths.removeAll()
+
+        folderMonitor?.stop()
+        folderMonitor = nil
+
+        let folderURLs = watchedFolderURLs()
+        guard !folderURLs.isEmpty else {
+            statusLabelItem.title = "Aucun dossier configuré"
+            return
+        }
+
+        let monitor = FolderEventMonitor(rootURLs: folderURLs) { [weak self] changedTargets in
+            DispatchQueue.main.async {
+                self?.scheduleAutomaticPreparation(for: changedTargets)
+            }
+        }
+        monitor.start()
+        folderMonitor = monitor
+        statusLabelItem.title = "Surveillance active"
+        logger.notice("Watching \(folderURLs.count, privacy: .public) folders for automatic preparation")
+    }
+
+    private func scheduleAutomaticPreparation(for urls: [URL]) {
+        let targetPaths = urls.map { $0.standardizedFileURL.path }
+        guard !targetPaths.isEmpty else {
+            return
+        }
+
+        pendingAutomaticTargetPaths.formUnion(targetPaths)
+        automaticPreparationWorkItem?.cancel()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.runScheduledAutomaticPreparationIfPossible()
+        }
+        automaticPreparationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + automaticPreparationDelay, execute: workItem)
+
+        if !isPreparing {
+            statusLabelItem.title = "Changements détectés…"
+        }
+    }
+
+    private func runScheduledAutomaticPreparationIfPossible() {
+        guard !pendingAutomaticTargetPaths.isEmpty else {
+            return
+        }
+
+        guard !isPreparing else {
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.runScheduledAutomaticPreparationIfPossible()
+            }
+            automaticPreparationWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + automaticPreparationDelay, execute: workItem)
+            return
+        }
+
+        let folderURLs = pendingAutomaticTargetPaths
+            .sorted()
+            .map { path -> URL in
+                var isDirectory: ObjCBool = false
+                FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+                return URL(fileURLWithPath: path, isDirectory: isDirectory.boolValue)
+            }
+        pendingAutomaticTargetPaths.removeAll()
+        prepare(folderURLs: folderURLs, notifyUser: false)
+    }
+
+    private func prepare(folderURLs: [URL], notifyUser: Bool) {
+        guard !isPreparing else {
+            logger.notice("Skipping prepare request because another preparation is already running")
+            return
+        }
+        guard !folderURLs.isEmpty else {
+            statusLabelItem.title = "Aucun dossier configuré"
+            logger.notice("Skipping prepare request because no folder is configured")
+            if notifyUser {
+                presentFolderPicker()
+            }
+            return
+        }
+
+        isPreparing = true
+        statusLabelItem.title = "Préparation en cours…"
+        print("Preparing \(folderURLs.count) folders")
+        logger.notice("Preparing \(folderURLs.count, privacy: .public) folders")
+
+        Task.detached(priority: .userInitiated) { [logger] in
+            let summary = PreparedDocumentPreparer.prepare(urls: folderURLs, logger: logger)
+            await MainActor.run {
+                self.isPreparing = false
+                self.statusLabelItem.title = summary.failures.isEmpty
+                    ? "Surveillance active"
+                    : "Échecs: \(summary.failures.count)"
+                self.logger.notice(
+                    """
+                    Preparation finished folders=\(summary.foldersScanned, privacy: .public) seen=\(summary.documentsSeen, privacy: .public) prepared=\(summary.documentsPrepared, privacy: .public) skipped=\(summary.documentsSkipped, privacy: .public) failures=\(summary.failures.count, privacy: .public)
+                    """
+                )
+                if notifyUser {
+                    self.presentSummary(summary)
+                }
+                self.runScheduledAutomaticPreparationIfPossible()
+            }
+        }
+    }
+
+    private func presentSummary(_ summary: PreparationRunSummary) {
+        let alert = NSAlert()
+        alert.messageText = "Préparation Quick Look terminée"
+        alert.informativeText = """
+        Dossiers scannés : \(summary.foldersScanned)
+        Fichiers .gltf vus : \(summary.documentsSeen)
+        Nouveaux caches : \(summary.documentsPrepared)
+        Déjà à jour : \(summary.documentsSkipped)
+        Échecs : \(summary.failures.count)
+        Matériaux Unreal : \(PreparedDocumentSettings.isUnrealMaterialEnrichmentEnabled() ? "activés" : "désactivés")
+        Vertex colors rouge pur : \(PreparedDocumentSettings.isUniformRedVertexColorIgnoringEnabled() ? "ignorés" : "conservés")
+        """
+        alert.alertStyle = summary.failures.isEmpty ? .informational : .warning
+        if let firstFailure = summary.failures.first {
+            alert.informativeText += "\n\nPremier échec :\n\(firstFailure)"
+        }
+        alert.runModal()
     }
 }
