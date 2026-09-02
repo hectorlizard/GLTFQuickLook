@@ -4,12 +4,16 @@ set -euo pipefail
 
 ROOT_DIR="$(git rev-parse --show-toplevel)"
 PROJECT_DIR="$ROOT_DIR/ModernAppExtension"
-DERIVED_DATA="${DERIVED_DATA:-$ROOT_DIR/build/ReleaseDerivedData}"
+if [[ -z "${DERIVED_DATA:-}" ]]; then
+  DERIVED_DATA=$(mktemp -d "${TMPDIR:-/tmp}/GLTFQuickLookRelease.XXXXXX")
+fi
 DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
 VERSION="${VERSION:-1.1.0-beta.1}"
 BUNDLE_VERSION="${BUNDLE_VERSION:-${VERSION%%-*}}"
 ARCH="${ARCH:-arm64}"
 ARTIFACT_NAME="GLTFQuickLook-${VERSION}-macos-${ARCH}"
+TEMP_ARCHIVE="$DIST_DIR/.${ARTIFACT_NAME}.$$.zip"
+TEMP_CHECKSUM="$DIST_DIR/.${ARTIFACT_NAME}.$$.zip.sha256"
 
 command -v xcodegen >/dev/null || {
   echo "error: xcodegen is required (brew install xcodegen)" >&2
@@ -18,7 +22,6 @@ command -v xcodegen >/dev/null || {
 
 "$ROOT_DIR/Scripts/check-release-hygiene.sh"
 
-rm -rf "$DERIVED_DATA" "$DIST_DIR/$ARTIFACT_NAME.zip"
 mkdir -p "$DERIVED_DATA" "$DIST_DIR"
 
 xcodegen generate --spec "$PROJECT_DIR/project.yml"
@@ -68,17 +71,17 @@ while IFS= read -r -d '' binary; do
 done < <(find "$APP_PATH" -type f -perm -111 -print0)
 
 ditto -c -k --keepParent --norsrc --noextattr --noqtn --noacl \
-  "$APP_PATH" "$DIST_DIR/$ARTIFACT_NAME.zip"
+  "$APP_PATH" "$TEMP_ARCHIVE"
 
-if unzip -Z1 "$DIST_DIR/$ARTIFACT_NAME.zip" | grep -Eq '(^|/)(\.DS_Store|__MACOSX)(/|$)'; then
+if unzip -Z1 "$TEMP_ARCHIVE" | grep -Eq '(^|/)(\.DS_Store|__MACOSX)(/|$)'; then
   echo "error: archive contains Finder metadata" >&2
   exit 1
 fi
 
-(
-  cd "$DIST_DIR"
-  shasum -a 256 "$ARTIFACT_NAME.zip" > "$ARTIFACT_NAME.zip.sha256"
-)
+checksum=$(shasum -a 256 "$TEMP_ARCHIVE" | awk '{print $1}')
+printf '%s  %s\n' "$checksum" "$ARTIFACT_NAME.zip" > "$TEMP_CHECKSUM"
+mv -f "$TEMP_ARCHIVE" "$DIST_DIR/$ARTIFACT_NAME.zip"
+mv -f "$TEMP_CHECKSUM" "$DIST_DIR/$ARTIFACT_NAME.zip.sha256"
 
 echo "Created:"
 echo "  $DIST_DIR/$ARTIFACT_NAME.zip"
