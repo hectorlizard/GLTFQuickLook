@@ -101,6 +101,6 @@ for its historical installation instructions.
 
 GLTFQuickLook was created by [magicien](https://github.com/magicien). The modern
 App Extension and current compatibility work are maintained by
-[Hectorlizard](https://github.com/Hectorlizard).
+[Hector](https://github.com/Hectorlizard).
 
 Released under the [MIT License](LICENSE).
